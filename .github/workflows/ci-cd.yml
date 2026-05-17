@@ -1,0 +1,69 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate-and-build:
+    name: Validate, install, and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify Python syntax
+        run: |
+          python -m compileall backend frontend
+
+      - name: Run unit tests if present
+        run: |
+          if [ -d test ] && [ "$(ls -A test)" ]; then
+            python -m pytest test
+          else
+            echo "No tests found under test/; skipping unit tests."
+          fi
+
+  build-docker-images:
+    name: Build Docker images
+    needs: validate-and-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend Docker image
+        run: |
+          docker build --file docker/Dockerfile.backend --tag customer-support-backend:ci .
+
+      - name: Build frontend Docker image
+        run: |
+          docker build --file docker/Dockerfile.frontend --tag customer-support-frontend:ci .
+
+  deploy-on-hold:
+    name: Deployment hold status
+    needs: build-docker-images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Report deployment hold
+        run: |
+          echo "Deployment is on hold because no cloud access is available."
+          echo "CI/CD pipeline finished successfully with Docker images built."
