@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
+
 # Page configuration
 st.set_page_config(
     page_title="AI Customer Support Platform",
