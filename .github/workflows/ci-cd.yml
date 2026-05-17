@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
 jobs:
-  validate-and-build:
-    name: Validate, install, and build
+  integration:
+    name: Continuous Integration
     runs-on: ubuntu-latest
 
     steps:
@@ -37,9 +40,9 @@ jobs:
             echo "No tests found under test/; skipping unit tests."
           fi
 
-  build-docker-images:
-    name: Build Docker images
-    needs: validate-and-build
+  build-and-push-docker-images:
+    name: Continuous Delivery
+    needs: integration
     runs-on: ubuntu-latest
 
     steps:
@@ -49,21 +52,36 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
       - name: Build backend Docker image
         run: |
-          docker build --file docker/Dockerfile.backend --tag customer-support-backend:ci .
+          docker build --file docker/Dockerfile.backend --tag ${{ secrets.DOCKER_USERNAME }}/customer_agent_repo:backend-latest .
 
       - name: Build frontend Docker image
         run: |
-          docker build --file docker/Dockerfile.frontend --tag customer-support-frontend:ci .
+          docker build --file docker/Dockerfile.frontend --tag ${{ secrets.DOCKER_USERNAME }}/customer_agent_repo:frontend-latest .
 
-  deploy-on-hold:
-    name: Deployment hold status
-    needs: build-docker-images
+      - name: Push backend Docker image
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/customer_agent_repo:backend-latest
+
+      - name: Push frontend Docker image
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/customer_agent_repo:frontend-latest
+
+  continuous-deployment:
+    name: Continuous Deployment
+    needs: build-and-push-docker-images
     runs-on: ubuntu-latest
 
     steps:
-      - name: Report deployment hold
+      - name: Notify deployment hold
         run: |
           echo "Deployment is on hold because no cloud access is available."
-          echo "CI/CD pipeline finished successfully with Docker images built."
+          echo "Continuous Deployment section is intentionally disabled."
+          exit 0
