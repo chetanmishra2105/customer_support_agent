@@ -42,6 +42,10 @@ async def startup_event():
     if raw_csv.exists() and has_vs_data:
         logger.info("✅ Raw CSV and vector store both present. Nothing to do on startup.")
         logger.info("✅ System ready!")
+        try:
+            workflow.mlflow_tracer.start_ui()
+        except Exception:
+            logger.exception("Failed to start MLflow UI during startup")
         return
 
     # Phase 1: Fetch CSV if missing
@@ -75,17 +79,34 @@ async def startup_event():
         logger.info("Phase 2: Vector store already populated. Skipping embedding.")
 
     logger.info("✅ System ready!")
+    try:
+        workflow.mlflow_tracer.start_ui()
+    except Exception:
+        logger.exception("Failed to start MLflow UI during startup")
 
 class QueryRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
+
+class QualityScoreRequest(BaseModel):
+    generated_response: str
+    intent: str
+    sentiment: Optional[str] = "neutral"
+
+class EscalationRiskRequest(BaseModel):
+    query: str
+    intent: str
+    sentiment: Optional[str] = "neutral"
 
 class QueryResponse(BaseModel):
     conversation_id: str
     response: str
     intent: Dict[str, Any]
     sentiment: Dict[str, Any]
+    qa_results: Optional[Dict[str, Any]] = None
     escalation: Dict[str, Any]
+    next_expected_query: Optional[Dict[str, Any]] = None
+    quality_score: Optional[float] = None
     response_time_ms: float
     confidence: float
 
@@ -101,7 +122,7 @@ async def root():
 async def process_chat(request: QueryRequest):
     try:
         logger.info(f"process_chat called: session_id={request.session_id}")
-        result = await workflow.process_query(request.query)
+        result = await workflow.process_query(request.query, session_id=request.session_id)
         logger.info(f"process_chat completed: conversation_id={result.get('conversation_id')}")
         return QueryResponse(**result)
     except Exception as e:
@@ -122,10 +143,63 @@ async def load_huggingface_data(max_records: int = 30000, force: bool = True, in
         logger.exception("Failed to load Hugging Face data on demand")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/tools/intent-examples")
+async def intent_examples(intent: str, limit: int = 5, include_response: bool = False):
+    examples = vector_store.get_examples_by_intent(intent, limit=limit, include_response=include_response)
+    return {"intent": intent, "examples": examples}
+
+@app.get("/api/tools/sentiment-responses")
+async def sentiment_responses(sentiment: str = "neutral", limit: int = 10):
+    responses = vector_store.get_responses_by_sentiment(sentiment, limit=limit)
+    return {"sentiment": sentiment, "responses": responses}
+
+@app.get("/api/tools/next-query")
+async def next_query(current_intent: str, current_sentiment: str = "neutral", limit: int = 3):
+    prediction = vector_store.get_next_expected_query(current_intent, current_sentiment, limit=limit)
+    return prediction
+
+@app.post("/api/tools/quality-score")
+async def quality_score(request: QualityScoreRequest):
+    score_data = vector_store.score_response_quality(
+        request.generated_response,
+        request.intent,
+        request.sentiment
+    )
+    return score_data
+
+@app.post("/api/tools/escalation-risk")
+async def escalation_risk(request: EscalationRiskRequest):
+    risk_data = vector_store.predict_escalation_risk(
+        request.query,
+        request.intent,
+        request.sentiment
+    )
+    return risk_data
+
 @app.get("/api/analytics")
 async def get_analytics(days: int = 7):
     analytics_data = workflow.analytics_agent.generate_analytics(days)
     return JSONResponse(content=analytics_data)
+
+@app.get("/api/mlflow")
+async def get_mlflow_info():
+    tracer = workflow.mlflow_tracer
+    return {
+        "mlflow_ui_url": tracer.get_ui_url(),
+        "tracking_uri": tracer.tracking_uri,
+        "experiment_name": tracer.experiment_name,
+        "status": "running" if tracer.ui_process and tracer.ui_process.poll() is None else "stopped"
+    }
+
+@app.post("/api/mlflow/start")
+async def start_mlflow_ui():
+    workflow.mlflow_tracer.start_ui()
+    return {"mlflow_ui_url": workflow.mlflow_tracer.get_ui_url(), "status": "started"}
+
+@app.post("/api/mlflow/stop")
+async def stop_mlflow_ui():
+    workflow.mlflow_tracer.stop_ui()
+    return {"mlflow_ui_url": workflow.mlflow_tracer.get_ui_url(), "status": "stopped"}
 
 @app.get("/api/health")
 async def health_check():

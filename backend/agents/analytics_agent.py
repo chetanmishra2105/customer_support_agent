@@ -44,6 +44,14 @@ class AnalyticsAgent:
         priorities = [c.get("priority_score", 5) for c in filtered_conversations]
         high_priority = len([p for p in priorities if p >= 8])
         
+        quality_scores = [c.get("quality_score") for c in filtered_conversations if c.get("quality_score") is not None]
+        avg_quality_score = round(sum(quality_scores) / len(quality_scores), 2) if quality_scores else None
+        quality_distribution = {
+            "90_plus": len([s for s in quality_scores if s >= 90]),
+            "70_to_89": len([s for s in quality_scores if 70 <= s < 90]),
+            "below_70": len([s for s in quality_scores if s < 70])
+        }
+
         analytics = {
             "time_range_days": time_range_days,
             "total_conversations": len(filtered_conversations),
@@ -52,11 +60,13 @@ class AnalyticsAgent:
             "escalation_rate": round(escalation_rate, 2),
             "avg_response_time_ms": round(avg_response_time, 2),
             "high_priority_count": high_priority,
+            "avg_quality_score": avg_quality_score,
+            "quality_distribution": quality_distribution,
             "top_issues": intent_counts.most_common(5),
             "sla_violations": self.check_sla_violations(filtered_conversations),
             "trends": self.analyze_trends(filtered_conversations)
         }
-        
+
         return analytics
     
     def check_sla_violations(self, conversations: List[Dict]) -> List[Dict]:

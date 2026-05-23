@@ -3,6 +3,7 @@ from datetime import datetime
 import uuid
 import json
 from backend.config import config
+from backend.rag.vector_store import VectorStoreManager
 from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -10,6 +11,7 @@ logger = get_logger(__name__)
 class EscalationAgent:
     def __init__(self):
         self.tickets = []
+        self.store_manager = VectorStoreManager()
         
     async def should_escalate(
         self,
@@ -41,10 +43,21 @@ class EscalationAgent:
         # Check for repeated issues
         if conversation_history and len(conversation_history) >= 3:
             escalation_reasons.append("Multiple interactions on same issue")
-        
-        should_escalate = len(escalation_reasons) > 0
 
-        logger.debug(f"Escalation check: priority_score={priority_score} sentiment={sentiment} response_confidence={response_confidence} reasons={escalation_reasons}")
+        risk_data = self.store_manager.predict_escalation_risk(
+            query,
+            intent,
+            sentiment_data.get("sentiment", "neutral")
+        )
+
+        escalation_reasons.extend([risk_data.get("warning", "")])
+        escalation_reasons = [reason for reason in escalation_reasons if reason]
+        should_escalate = len(escalation_reasons) > 0 or risk_data["risk_score"] >= 7
+
+        logger.debug(
+            f"Escalation check: priority_score={priority_score} sentiment={sentiment} response_confidence={response_confidence} "
+            f"risk_score={risk_data['risk_score']} reasons={escalation_reasons}"
+        )
         
         if should_escalate:
             ticket = self.create_support_ticket(query, intent, sentiment_data, escalation_reasons)
@@ -54,13 +67,17 @@ class EscalationAgent:
                 "reasons": escalation_reasons,
                 "ticket": ticket,
                 "priority": "high" if priority_score > 7 else "medium",
-                "assigned_team": "customer_support"
+                "assigned_team": "customer_support",
+                "risk_score": risk_data["risk_score"],
+                "intervention": risk_data["intervention"]
             }
-        
+
         return {
             "should_escalate": False,
             "reasons": [],
-            "ticket": None
+            "ticket": None,
+            "risk_score": risk_data["risk_score"],
+            "intervention": risk_data["intervention"]
         }
     
     def create_support_ticket(self, query: str, intent: str, sentiment_data: Dict, reasons: list) -> Dict:

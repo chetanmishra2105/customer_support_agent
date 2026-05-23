@@ -4,6 +4,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from backend.config import config
+from backend.rag.vector_store import VectorStoreManager
 import json
 from backend.utils.logger import get_logger
 from backend.utils.retry import async_retry
@@ -31,39 +32,36 @@ class KnowledgeBaseRetrievalAgent:
         self.retriever = self.vectorstore.as_retriever(
             search_kwargs={"k": config.MAX_RETRIEVAL_DOCS}
         )
+        self.store_manager = VectorStoreManager()
     
     async def retrieve_knowledge(self, query: str, intent: str) -> List[Dict[str, Any]]:
-        # Enhance query with intent context
+        # Enhance query with intent context and perform intent-filtered retrieval.
         enhanced_query = f"Intent: {intent}. Customer question: {query}"
-        # Attempt to use an async retriever if available, otherwise fall back to
-        # sync retrieval methods or a direct vectorstore search.
-        docs = []
-        if hasattr(self.retriever, "aget_relevant_documents"):
-            logger.debug("Using async retriever: aget_relevant_documents")
-            docs = await self.retriever.aget_relevant_documents(enhanced_query)
-        elif hasattr(self.retriever, "get_relevant_documents"):
-            logger.debug("Using sync retriever: get_relevant_documents")
-            docs = self.retriever.get_relevant_documents(enhanced_query)
-        else:
-            # Fallback to vectorstore similarity search
-            logger.debug("Falling back to vectorstore.similarity_search_with_relevance_scores")
-            docs = self.vectorstore.similarity_search_with_relevance_scores(
-                enhanced_query, k=config.MAX_RETRIEVAL_DOCS
+        retrieved_docs = []
+
+        try:
+            docs = self.vectorstore.similarity_search(
+                enhanced_query,
+                k=config.MAX_RETRIEVAL_DOCS,
+                filter={"intent": intent}
+            )
+            if not docs:
+                logger.warning("Intent-filtered retrieval returned no docs; falling back to general retrieval.")
+                docs = self.vectorstore.similarity_search(
+                    enhanced_query,
+                    k=config.MAX_RETRIEVAL_DOCS
+                )
+        except Exception as e:
+            logger.warning(f"Intent-filtered retrieval failed: {e}")
+            docs = self.vectorstore.similarity_search(
+                enhanced_query,
+                k=config.MAX_RETRIEVAL_DOCS
             )
 
-        retrieved_docs = []
         for doc in docs:
-            # Some vectorstore APIs return tuples (Document, score)
-            if isinstance(doc, tuple) and len(doc) == 2:
-                document, score = doc
-                content = getattr(document, "page_content", str(document))
-                metadata = getattr(document, "metadata", {})
-                relevance = score
-            else:
-                content = getattr(doc, "page_content", str(doc))
-                metadata = getattr(doc, "metadata", {})
-                relevance = metadata.get("score", 1.0)
-
+            content = getattr(doc, "page_content", str(doc))
+            metadata = getattr(doc, "metadata", {})
+            relevance = metadata.get("score", 1.0)
             retrieved_docs.append({
                 "content": content,
                 "metadata": metadata,
@@ -71,7 +69,6 @@ class KnowledgeBaseRetrievalAgent:
             })
 
         logger.info(f"retrieve_knowledge returned {len(retrieved_docs)} docs for query")
-
         return retrieved_docs
     
     async def answer_with_context(self, query: str, intent: str, docs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -110,3 +107,6 @@ class KnowledgeBaseRetrievalAgent:
             "retrieved_docs": docs,
             "num_docs": len(docs)
         }
+
+    async def get_next_expected_query(self, current_intent: str, current_sentiment: str) -> Dict[str, Any]:
+        return self.store_manager.get_next_expected_query(current_intent, current_sentiment)

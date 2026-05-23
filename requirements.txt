@@ -26,6 +26,7 @@ celery
 # Monitoring & Logging
 prometheus-client
 python-json-logger
+mlflow
 
 # Utils
 httpx

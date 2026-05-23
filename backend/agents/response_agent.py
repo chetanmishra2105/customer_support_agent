@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from backend.config import config
+from backend.rag.vector_store import VectorStoreManager
 import json
 from backend.utils.logger import get_logger
 from backend.utils.retry import async_retry
@@ -15,6 +16,7 @@ class ResponseGenerationAgent:
             model=config.MODEL_NAME,
             temperature=0.7
         )
+        self.store_manager = VectorStoreManager()
     
     async def generate_response(
         self,
@@ -36,6 +38,13 @@ class ResponseGenerationAgent:
         sentiment = sentiment_data.get("sentiment", "neutral")
         style = style_instructions.get(sentiment, style_instructions["neutral"])
         
+        sentiment_examples = self.store_manager.get_responses_by_sentiment(sentiment, limit=3)
+        examples_section = "\n".join(
+            [f"- Q: {item['query']} | A: {item['response']}" for item in sentiment_examples]
+        )
+        if not examples_section:
+            examples_section = "No historical sentiment examples available."
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a professional customer support agent.
             
@@ -48,6 +57,9 @@ class ResponseGenerationAgent:
             3. Shows appropriate empathy based on sentiment
             4. Provides clear next steps
             5. Is professional but friendly
+            
+            Learn from these sentiment-aligned historical examples:
+            {examples_section}
             
             Return JSON format:
             {{
@@ -77,7 +89,8 @@ class ResponseGenerationAgent:
                 "query": query,
                 "sentiment": sentiment,
                 "priority": sentiment_data.get("priority_score", 5),
-                "context": rag_data.get("answer", "No context available")
+                "context": rag_data.get("answer", "No context available"),
+                "examples_section": examples_section
             }),
             retries=4,
             initial_delay=1.0,
@@ -95,5 +108,18 @@ class ResponseGenerationAgent:
                 "requires_escalation": False,
                 "confidence": 0.5
             }
-        
+
+        quality_data = self.store_manager.score_response_quality(
+            result.get("response_text", ""),
+            intent,
+            sentiment
+        )
+
+        if quality_data["quality_score"] < 60:
+            result["confidence"] = min(result.get("confidence", 0.5), quality_data["quality_score"] / 100)
+            result["quality_penalty"] = True
+
+        result["quality_score"] = quality_data["quality_score"]
+        result["quality_suggestions"] = quality_data["quality_suggestions"]
+
         return result

@@ -47,3 +47,6 @@ docker-compose up --build
 docker run -p 8501:8501 -e BACKEND_URL=http://host.docker.internal:8000 5114540/customer_agent_repo:frontend-latest
 ```
 - If using Docker Compose, the frontend already receives `BACKEND_URL=http://backend:8000` from `docker-compose.yml`.
+
+## data source 
+- https://huggingface.co/datasets/bitext/Bitext-customer-support-llm-chatbot-training-dataset/viewer/default/train?row=4&sql=--+The+SQL+console+is+powered+by+DuckDB+WASM+and+runs+entirely+in+the+browser.%0A--+Get+started+by+typing+a+query+or+selecting+a+view+from+the+options+below.%0ASELECT+count%28*%29+FROM+train%3B

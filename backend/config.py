@@ -36,6 +36,17 @@ class Config:
     DATA_DIR = BASE_DIR / "data"
     PROMPTS_DIR = BASE_DIR / "backend" / "prompts"
     
+    # MLflow tracing
+    MLFLOW_TRACKING_URI = os.getenv(
+        "MLFLOW_TRACKING_URI",
+        f"sqlite:///{(BASE_DIR / 'mlflow.db').as_posix()}"
+    )
+    MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "customer_support_agent")
+    MLFLOW_ARTIFACT_DIR = os.getenv("MLFLOW_ARTIFACT_DIR", str(BASE_DIR / "mlruns" / "artifacts"))
+    MLFLOW_UI_HOST = os.getenv("MLFLOW_UI_HOST", "127.0.0.1")
+    MLFLOW_UI_PORT = int(os.getenv("MLFLOW_UI_PORT", "5000"))
+    MLFLOW_AUTO_START_UI = os.getenv("MLFLOW_AUTO_START_UI", "true").lower() in ("1", "true", "yes")
+
     # Agent Configuration
     CONFIDENCE_THRESHOLD = 0.7
     ESCALATION_PRIORITY_THRESHOLD = 8  # 1-10 scale
