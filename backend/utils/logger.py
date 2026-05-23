@@ -13,6 +13,14 @@ def setup_logger():
     if root.handlers:
         return
     root.setLevel(logging.DEBUG)
+    # Silence verbose network and model download logging from Hugging Face / HTTPX.
+    # This keeps terminal output focused on app-level events only.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("transformers").setLevel(logging.WARNING)
+    logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+    logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+
     fmt = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
 
     ch = logging.StreamHandler(stream=sys.stdout)

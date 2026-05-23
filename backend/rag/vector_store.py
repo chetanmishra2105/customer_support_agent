@@ -26,10 +26,10 @@ class VectorStoreManager:
 
     def _init_embeddings_and_vectorstore(self):
         if self.embeddings is None:
-            logger.info("Initializing HuggingFaceEmbeddings...")
+            # logger.info("Initializing HuggingFaceEmbeddings...")
             self.embeddings = HuggingFaceEmbeddings(model_name=config.EMBEDDING_MODEL)
         if self.vectorstore is None:
-            logger.info("Initializing Chroma vectorstore...")
+            # logger.info("Initializing Chroma vectorstore...")
             self.vectorstore = Chroma(
                 collection_name=config.CHROMA_COLLECTION_NAME,
                 embedding_function=self.embeddings,
@@ -381,11 +381,11 @@ class VectorStoreManager:
                     'flags': row_data.get('flags', '')
                 })
             
-            logger.info(f"Fetched {len(rows)} records from Hugging Face (offset={offset})")
+# logger.info(f"Fetched {len(rows)} records from Hugging Face (offset={offset})")
             return rows
-            
+        
         except Exception as e:
-            logger.info(f"❌ Error fetching from Hugging Face: {e}")
+            # logger.info(f"❌ Error fetching from Hugging Face: {e}")
             return []
 
     def save_raw_data(self, rows: List[Dict[str, Any]], filename: str = "huggingface_raw_data.csv"):
@@ -468,16 +468,16 @@ class VectorStoreManager:
         raw_csv = RAW_DATA_DIR / "huggingface_raw_data.csv"
         if raw_csv.exists() and not force:
             if self.has_vectorstore_data():
-                logger.info(
-                    "📌 Existing raw Hugging Face CSV found and vector store already has data. Skipping fetch. "
-                    "Use force=True to refresh data."
-                )
+                # logger.info(
+                #     "📌 Existing raw Hugging Face CSV found and vector store already has data. Skipping fetch. "
+                #     "Use force=True to refresh data."
+                # )
                 return 0
 
-            logger.info(
-                "📌 Existing raw Hugging Face CSV found but vector store appears empty. "
-                "Loading data from CSV into vector store."
-            )
+            # logger.info(
+            #     "📌 Existing raw Hugging Face CSV found but vector store appears empty. "
+            #     "Loading data from CSV into vector store."
+            # )
             if ingest:
                 return self.load_raw_data_from_csv(max_records=max_records)
             logger.info("Ingest disabled; skipping load from CSV into vector store.")

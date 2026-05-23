@@ -50,7 +50,7 @@ async def startup_event():
 
     # Phase 1: Fetch CSV if missing
     if not raw_csv.exists():
-        logger.info("Phase 1: Raw CSV missing — fetching from Hugging Face...")
+        # logger.info("Phase 1: Raw CSV missing — fetching from Hugging Face...")
         try:
             fetched = await asyncio.to_thread(vector_store.fetch_and_save_csv_only, 30000)
             if fetched == 0 and not raw_csv.exists():
@@ -131,7 +131,7 @@ async def process_chat(request: QueryRequest):
 
 @app.api_route("/api/load-data", methods=["GET", "POST"])
 async def load_huggingface_data(max_records: int = 30000, force: bool = True, ingest: bool = False):
-    logger.info(f"load_huggingface_data called: max_records={max_records}, force={force}, ingest={ingest}")
+    # logger.info(f"load_huggingface_data called: max_records={max_records}, force={force}, ingest={ingest}")
     try:
         loaded = vector_store.add_huggingface_to_vectorstore(max_records=max_records, force=force, ingest=ingest)
         return {

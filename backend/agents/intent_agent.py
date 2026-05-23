@@ -58,9 +58,21 @@ class IntentClassificationAgent:
             backoff_factor=2.0,
         )
         
+        response_text = None
+        if hasattr(response, "content"):
+            response_text = response.content
+        elif hasattr(response, "text"):
+            response_text = response.text
+        else:
+            response_text = str(response)
+
+        if isinstance(response_text, bytes):
+            response_text = response_text.decode("utf-8", errors="replace")
+
         try:
-            result = json.loads(response.content)
+            result = json.loads(response_text)
         except Exception:
+            logger.debug("Intent classification raw response: %s", response_text)
             logger.exception("Intent classification failed, using fallback")
             result = {
                 "intent": "general_inquiry",

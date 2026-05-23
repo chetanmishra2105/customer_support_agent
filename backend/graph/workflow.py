@@ -107,6 +107,16 @@ class CustomerSupportWorkflow:
             model_name=self._extract_model_name(self.intent_agent.llm),
         )
         state["intent_data"] = intent_data
+        self._log_agent_state_transition(
+            step_name="classify_intent",
+            agent_name="IntentClassificationAgent",
+            model_name=self._extract_model_name(self.intent_agent.llm),
+            input_data={"query": state["query"]},
+            output_data=intent_data,
+            state_snapshot={
+                "intent_data": state["intent_data"],
+            },
+        )
         return state
     
     async def analyze_sentiment(self, state: AgentState) -> AgentState:
@@ -118,6 +128,17 @@ class CustomerSupportWorkflow:
             model_name=self._extract_model_name(self.sentiment_agent.llm),
         )
         state["sentiment_data"] = sentiment_data
+        self._log_agent_state_transition(
+            step_name="analyze_sentiment",
+            agent_name="SentimentPriorityAgent",
+            model_name=self._extract_model_name(self.sentiment_agent.llm),
+            input_data={"query": state["query"], "intent": state["intent_data"].get("intent", "unknown")},
+            output_data=sentiment_data,
+            state_snapshot={
+                "intent_data": state["intent_data"],
+                "sentiment_data": state["sentiment_data"],
+            },
+        )
         return state
     
     async def retrieve_knowledge(self, state: AgentState) -> AgentState:
@@ -126,7 +147,7 @@ class CustomerSupportWorkflow:
             self.rag_agent.retrieve_knowledge,
             {"query": state["query"], "intent": state["intent_data"].get("intent", "unknown")},
             agent_name="KnowledgeBaseRetrievalAgent",
-            model_name=getattr(self.rag_agent.llm, "model", "unknown"),
+            model_name=self._extract_model_name(self.rag_agent.llm),
         )
         
         rag_answer = await self._trace_agent_step(
@@ -147,6 +168,21 @@ class CustomerSupportWorkflow:
         rag_answer["next_expected_query"] = next_query
         rag_answer["retrieved_docs"] = docs
         state["rag_data"] = rag_answer
+        self._log_agent_state_transition(
+            step_name="retrieve_knowledge",
+            agent_name="KnowledgeBaseRetrievalAgent",
+            model_name=self._extract_model_name(self.rag_agent.llm),
+            input_data={"query": state["query"], "intent": state["intent_data"].get("intent", "unknown")},
+            output_data={
+                "docs": docs,
+                "rag_answer": rag_answer,
+            },
+            state_snapshot={
+                "intent_data": state["intent_data"],
+                "sentiment_data": state["sentiment_data"],
+                "rag_data": state["rag_data"],
+            },
+        )
         return state
     
     async def generate_response(self, state: AgentState) -> AgentState:
@@ -163,6 +199,22 @@ class CustomerSupportWorkflow:
             model_name=self._extract_model_name(self.response_agent.llm),
         )
         state["response_data"] = response_data
+        self._log_agent_state_transition(
+            step_name="generate_response",
+            agent_name="ResponseGenerationAgent",
+            model_name=self._extract_model_name(self.response_agent.llm),
+            input_data={
+                "query": state["query"],
+                "intent": state["intent_data"].get("intent", "unknown"),
+                "sentiment_data": state["sentiment_data"],
+                "rag_data": state["rag_data"],
+            },
+            output_data=response_data,
+            state_snapshot={
+                "rag_data": state["rag_data"],
+                "response_data": state["response_data"],
+            },
+        )
         return state
     
     async def qa_validation(self, state: AgentState) -> AgentState:
@@ -178,6 +230,21 @@ class CustomerSupportWorkflow:
             model_name=self._extract_model_name(self.qa_agent.llm),
         )
         state["qa_data"] = qa_data
+        self._log_agent_state_transition(
+            step_name="qa_validation",
+            agent_name="QAComplianceAgent",
+            model_name=self._extract_model_name(self.qa_agent.llm),
+            input_data={
+                "query": state["query"],
+                "response": state["response_data"].get("response_text", ""),
+                "rag_context": state["rag_data"].get("answer", ""),
+            },
+            output_data=qa_data,
+            state_snapshot={
+                "response_data": state["response_data"],
+                "qa_data": state["qa_data"],
+            },
+        )
         
         # If QA fails, modify response
         if not qa_data["is_compliant"]:
@@ -206,6 +273,23 @@ class CustomerSupportWorkflow:
         
         state["escalation_data"] = escalation_data
         state["escalated"] = escalation_data["should_escalate"]
+        self._log_agent_state_transition(
+            step_name="check_escalation",
+            agent_name="EscalationAgent",
+            model_name="rule_engine",
+            input_data={
+                "query": state["query"],
+                "intent": state["intent_data"].get("intent", "unknown"),
+                "sentiment_data": state["sentiment_data"],
+                "response_data": state["response_data"],
+            },
+            output_data=escalation_data,
+            state_snapshot={
+                "response_data": state["response_data"],
+                "escalation_data": state["escalation_data"],
+                "escalated": state["escalated"],
+            },
+        )
         
         if escalation_data["should_escalate"]:
             state["final_response"] = (
@@ -343,6 +427,34 @@ class CustomerSupportWorkflow:
         
         return flattened
 
+    def _log_agent_state_transition(
+        self,
+        step_name: str,
+        agent_name: str,
+        model_name: str,
+        input_data: Any,
+        output_data: Any,
+        state_snapshot: Dict[str, Any] | None = None,
+    ) -> None:
+        """Log structured state transitions for terminal debugging."""
+        state_snapshot = state_snapshot or {}
+        payload = {
+            "event": "agent_state transition",
+            "step_name": step_name,
+            "agent_name": agent_name,
+            "model_name": model_name,
+            "input": input_data,
+            "output": output_data,
+            "state": state_snapshot,
+        }
+        try:
+            formatted_payload = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
+            logger.info("AGENT_STATE\n%s", formatted_payload)
+            logger.debug("AGENT_STATE_FULL\n%s", formatted_payload)
+        except Exception:
+            logger.info("AGENT_STATE %s", str(payload))
+            logger.debug("AGENT_STATE_FULL %s", str(payload))
+
     def _log_agent_specific_data(self, step_name: str, agent_name: str, result: Any) -> None:
         """Log important fields from agent outputs for better visibility in MLflow UI."""
         if not isinstance(result, dict):
@@ -473,6 +585,20 @@ class CustomerSupportWorkflow:
                     "timestamp": time.time(),
                 }
                 self.analytics_agent.track_conversation(analytics_data)
+                self._log_agent_state_transition(
+                    step_name="conversation_complete",
+                    agent_name="CustomerSupportWorkflow",
+                    model_name="workflow",
+                    input_data={"query": query, "session_id": session_id},
+                    output_data={
+                        "response": final_state["final_response"],
+                        "confidence": final_state["response_data"].get("confidence", 0.5),
+                        "escalated": final_state["escalated"],
+                    },
+                    state_snapshot={
+                        "final_state": final_state,
+                    },
+                )
                 logger.info(f"process_query completed: conversation_id={final_state['conversation_id']} response_time_ms={response_time_ms:.2f}ms")
 
                 return {
